@@ -6,3 +6,5 @@ dist/
 build/
 *.egg-info/
 .coverage
+test-impact-report.json
+test-impact-report.md

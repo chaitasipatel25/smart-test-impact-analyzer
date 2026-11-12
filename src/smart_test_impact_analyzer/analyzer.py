@@ -16,8 +16,20 @@ FULL_SUITE_CONFIG_FILES = {
     "pytest.ini",
     "setup.cfg",
     "tox.ini",
+    "setup.py",
+    "noxfile.py",
     "requirements.txt",
     "requirements-dev.txt",
+    "poetry.lock",
+    "uv.lock",
+    "Pipfile",
+    "Pipfile.lock",
+}
+
+DOCUMENTATION_SUFFIXES = {
+    ".md",
+    ".rst",
+    ".adoc",
 }
 
 
@@ -33,8 +45,7 @@ class AnalysisResult:
 
 def is_test_file(path: Path) -> bool:
     return (
-        "tests" in path.parts
-        or path.name.startswith("test_")
+        path.name.startswith("test_")
         or path.name.endswith("_test.py")
     )
 
@@ -48,11 +59,9 @@ def analyze_changes(
     all_python_files = discover_python_files(repo_path)
 
     test_files = sorted(
-        {
-            path.relative_to(repo_path).as_posix()
-            for path in all_python_files
-            if is_test_file(path)
-        }
+        path.relative_to(repo_path).as_posix()
+        for path in all_python_files
+        if is_test_file(path.relative_to(repo_path))
     )
 
     changed_paths = [item.path for item in changed_files]
@@ -74,19 +83,28 @@ def analyze_changes(
         return full_suite("No changed files were supplied")
 
     for item in changed_files:
+        path = Path(item.path)
+        filename = path.name
+
         if item.status.startswith(("D", "R", "C")):
             return full_suite(
                 f"Deleted, renamed, or copied file: {item.path}"
             )
 
-        filename = Path(item.path).name
-
         if (
             filename in FULL_SUITE_CONFIG_FILES
+            or filename.startswith("requirements")
+            and filename.endswith(".txt")
             or filename == "conftest.py"
+            or item.path.startswith(".github/workflows/")
         ):
             return full_suite(
-                f"Test configuration or shared fixture changed: {item.path}"
+                f"Test configuration or CI configuration changed: {item.path}"
+            )
+
+        if path.suffix != ".py" and path.suffix not in DOCUMENTATION_SUFFIXES:
+            return full_suite(
+                f"Unrecognized non-Python file changed: {item.path}"
             )
 
     try:
@@ -99,15 +117,20 @@ def analyze_changes(
     for item in changed_files:
         changed_path = Path(item.path)
 
+        # Documentation changes do not affect Python dependencies.
+        if changed_path.suffix in DOCUMENTATION_SUFFIXES:
+            continue
+
         if changed_path.suffix != ".py":
             continue
 
+        relative_path = changed_path
         module = path_to_module(
-            repo_path / changed_path,
+            repo_path / relative_path,
             repo_path,
         )
 
-        if is_test_file(changed_path):
+        if is_test_file(relative_path):
             if item.path not in test_files:
                 return full_suite(
                     f"Changed test could not be mapped: {item.path}"
@@ -125,29 +148,28 @@ def analyze_changes(
 
         impacted_modules = find_dependents(graph, module)
 
-        impacted_tests = [
-            test
-            for test in test_files
-            if path_to_module(repo_path / test, repo_path)
-            in impacted_modules
-        ]
-
-        for test in impacted_tests:
-            reasons.setdefault(test, []).append(
-                f"Depends directly or transitively on {item.path}"
+        for test in test_files:
+            test_module = path_to_module(
+                repo_path / test,
+                repo_path,
             )
+
+            if test_module in impacted_modules:
+                reasons.setdefault(test, []).append(
+                    f"Depends directly or transitively on {item.path}"
+                )
 
     if not reasons:
         return full_suite(
             "No impacted tests could be confidently identified"
         )
 
-    selected = sorted(reasons)
+    selected_tests = sorted(reasons)
 
     return AnalysisResult(
         mode="targeted",
         changed_files=changed_paths,
-        selected_tests=selected,
+        selected_tests=selected_tests,
         reasons=reasons,
         total_tests=len(test_files),
     )
