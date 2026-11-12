@@ -1,5 +1,6 @@
-
 # Smart Test Impact Analyzer
+
+[![Tests and Test Impact Analysis](https://github.com/chaitasipatel25/smart-test-impact-analyzer/actions/workflows/test.yml/badge.svg)](https://github.com/chaitasipatel25/smart-test-impact-analyzer/actions/workflows/test.yml)
 
 A dependency-aware test selection engine that analyzes Git changes to identify impacted tests, reduce unnecessary CI execution, and safely fall back to the full test suite when test selection is uncertain.
 
@@ -7,7 +8,7 @@ A dependency-aware test selection engine that analyzes Git changes to identify i
 
 Running an entire test suite for every code change can increase CI execution time and consume unnecessary compute resources.
 
-However, selecting only a subset of tests introduces a risk: an incomplete dependency analysis can miss regressions.
+However, selecting only a subset of tests introduces a risk: incomplete dependency analysis can miss regressions.
 
 Smart Test Impact Analyzer addresses this trade-off by analyzing Python dependencies and selecting tests that are directly or transitively affected by code changes.
 
@@ -45,7 +46,7 @@ flowchart TD
 
 ## How It Works
 
-1. Retrieves changed files from Git using a base and head reference.
+1. Retrieves changed files from Git using base and head references.
 2. Identifies relevant Python modules and test files.
 3. Parses Python source files into ASTs.
 4. Builds a dependency graph based on recognized imports.
@@ -105,7 +106,23 @@ test-impact \
 
 The analyzer compares Git references and therefore analyzes committed changes, not uncommitted working-tree changes.
 
-## Example Output
+## Example
+
+### Targeted test selection
+
+Suppose a change is made to:
+
+`src/payments/calculator.py`
+
+The dependency graph identifies that both the calculator and service tests are affected.
+
+Run:
+
+```bash
+test-impact --base main --head HEAD --format text
+```
+
+Representative output:
 
 ```text
 Smart Test Impact Analyzer
@@ -113,8 +130,8 @@ Smart Test Impact Analyzer
 
 Selection mode: TARGETED
 Changed files: 1
-Selected tests: 2 / 5
-Selection ratio: 40.0%
+Selected tests: 2 / 2
+Selection ratio: 100.0%
 
 Selected Tests
 --------------------------------------------------
@@ -122,9 +139,26 @@ Selected Tests
 tests/test_calculator.py
   Reason: Depends directly or transitively on src/payments/calculator.py
 
-tests/test_payment_service.py
+tests/test_service.py
   Reason: Depends directly or transitively on src/payments/calculator.py
 ```
+
+### Conservative full-suite fallback
+
+If a deleted file or test configuration change is detected, the analyzer recommends running the complete test suite rather than attempting a potentially incomplete selection.
+
+For example, changing `pyproject.toml` triggers full-suite mode:
+
+```text
+Selection mode: FULL_SUITE
+Changed files: 1
+Selected tests: 2 / 2
+
+Fallback reason:
+Test configuration changed: pyproject.toml
+```
+
+These are representative examples of the expected report behavior, not captured terminal output.
 
 ## Safety Strategy
 
